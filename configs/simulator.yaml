@@ -1,0 +1,74 @@
+simulation:
+  step_seconds: 5
+  start_at: "2026-01-15T00:00:00Z"
+  services:
+    orders:
+      role: "front door"
+      critical: true
+      base_request_rate_per_s: 52.0
+      base_memory_mb: 420.0
+      memory_limit_mb: 2048.0
+      db_pool_size: 40
+      disk_baseline_pct: 38.0
+      version: "1.0.0"
+    payments:
+      role: "payment processing"
+      critical: true
+      base_request_rate_per_s: 38.0
+      base_memory_mb: 360.0
+      memory_limit_mb: 1792.0
+      db_pool_size: 20
+      disk_baseline_pct: 32.0
+      version: "1.0.0"
+    inventory:
+      role: "stock reservation"
+      critical: false
+      base_request_rate_per_s: 31.0
+      base_memory_mb: 300.0
+      memory_limit_mb: 1536.0
+      db_pool_size: 24
+      disk_baseline_pct: 29.0
+      version: "1.0.0"
+faults:
+  - fault_type: "memory_leak"
+    service: "orders"
+    start_offset_seconds: 3600
+    duration_seconds: 1800
+    intensity: 0.9
+  - fault_type: "db_pool_exhaustion"
+    service: "payments"
+    start_offset_seconds: 18000
+    duration_seconds: 1800
+    intensity: 1.0
+  - fault_type: "slow_dependency"
+    service: "inventory"
+    start_offset_seconds: 36000
+    duration_seconds: 1800
+    intensity: 0.8
+  - fault_type: "bad_deployment"
+    service: "orders"
+    start_offset_seconds: 54000
+    duration_seconds: 1800
+    intensity: 0.7
+  - fault_type: "disk_full"
+    service: "payments"
+    start_offset_seconds: 72000
+    duration_seconds: 1800
+    intensity: 1.0
+decoys:
+  - decoy_type: "harmless_deployment"
+    service: "orders"
+    start_offset_seconds: 10800
+    duration_seconds: 60
+    intensity: 1.0
+  - decoy_type: "transient_blip"
+    service: "payments"
+    start_offset_seconds: 27000
+    duration_seconds: 45
+    intensity: 0.6
+  - decoy_type: "traffic_spike"
+    service: "orders"
+    start_offset_seconds: 45000
+    duration_seconds: 600
+    intensity: 2.0
+

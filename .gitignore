@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+coverage.xml
+htmlcov/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Generated simulation data and model artefacts
+data/raw/*
+data/interim/*
+data/processed/*
+data/models/*
+data/ground_truth/*
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+!data/models/.gitkeep
+!data/ground_truth/.gitkeep
+
+# Notebook and editor state
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.log
+

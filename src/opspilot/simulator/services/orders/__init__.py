@@ -1,0 +1,2 @@
+"""Orders simulator service adapter."""
+
