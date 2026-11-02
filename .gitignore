@@ -25,6 +25,8 @@ data/ground_truth/*
 !data/processed/.gitkeep
 !data/models/.gitkeep
 !data/ground_truth/.gitkeep
+evals/reports/*
+!evals/reports/.gitkeep
 
 # Notebook and editor state
 .ipynb_checkpoints/

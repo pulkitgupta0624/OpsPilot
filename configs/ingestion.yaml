@@ -1,0 +1,10 @@
+database_url: "postgresql+psycopg://opspilot:opspilot@localhost:5432/opspilot"
+scrape_interval_seconds: 5
+request_timeout_seconds: 3
+retry_attempts: 3
+batch_capacity: 20
+services:
+  orders: "http://127.0.0.1:8001"
+  payments: "http://127.0.0.1:8002"
+  inventory: "http://127.0.0.1:8003"
+

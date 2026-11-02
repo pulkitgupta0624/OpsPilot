@@ -34,12 +34,19 @@ def run_virtual_simulation(
     hours: int,
     seed: int,
     output_root: Path = Path("data"),
+    normal_only: bool = False,
 ) -> SimulationArtifacts:
     """Run the configured simulator and persist Parquet metrics plus JSONL logs."""
     if hours <= 0:
         raise SimulationError("hours must be a positive integer")
     config = load_simulation_config(config_path)
-    return simulate(config=config, hours=hours, seed=seed, output_root=output_root)
+    return simulate(
+        config=config,
+        hours=hours,
+        seed=seed,
+        output_root=output_root,
+        normal_only=normal_only,
+    )
 
 
 def simulate(
@@ -48,6 +55,7 @@ def simulate(
     hours: int,
     seed: int,
     output_root: Path = Path("data"),
+    normal_only: bool = False,
 ) -> SimulationArtifacts:
     """Run a validated configuration without making network calls."""
     if hours <= 0:
@@ -59,8 +67,12 @@ def simulate(
     if steps == 0:
         raise SimulationError("Simulation duration is shorter than one configured tick")
 
+    if normal_only:
+        config = config.model_copy(update={"faults": [], "decoys": []})
     clock = VirtualClock(config.start_at)
     run_id = simulation_run_id(seed, config.start_at)
+    if normal_only:
+        run_id = f"{run_id}-normal"
     engine = SimulationEngine(
         config,
         seed=seed,

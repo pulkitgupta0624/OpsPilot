@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from opspilot.domain.enums import ActionType, FaultType
 
@@ -29,6 +29,35 @@ class MetricPoint(BaseModel):
     disk_used_pct: float = Field(ge=0, le=100)
     restarts_total: int = Field(ge=0)
     app_version: str
+
+
+class MetricSample(BaseModel):
+    """Normalized metric row persisted by the ingestion layer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ts: datetime
+    service: str
+    name: str
+    value: float
+    run_id: str | None = None
+
+
+class TimeRange(BaseModel):
+    """Inclusive UTC time interval for metric and log queries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start: datetime
+    end: datetime
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "TimeRange":
+        if self.start.tzinfo is None or self.end.tzinfo is None:
+            raise ValueError("TimeRange bounds must be timezone-aware")
+        if self.start > self.end:
+            raise ValueError("TimeRange.start must be less than or equal to end")
+        return self
 
 
 class LogRecord(BaseModel):

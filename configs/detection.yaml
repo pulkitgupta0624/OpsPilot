@@ -1,0 +1,33 @@
+window_seconds: 60
+stride_seconds: 10
+baseline_seconds: 1800
+threshold_quantile: 0.995
+consecutive_windows: 3
+online_consecutive_windows: 1
+fault_grace_seconds: 30
+isolation_forest:
+  n_estimators: 200
+  contamination: "auto"
+  random_state: 42
+lstm_autoencoder:
+  sequence_length: 6
+  hidden_size: 32
+  latent_size: 8
+  epochs: 20
+  batch_size: 256
+  learning_rate: 0.001
+  patience: 4
+  seed: 42
+logs:
+  max_clusters: 2000
+  frequency_window_seconds: 60
+  frequency_multiplier: 5.0
+  frequency_minimum_count: 5
+correlation:
+  merge_window_seconds: 120
+  cooldown_seconds: 300
+  service_neighbors:
+    orders: [payments, inventory]
+    payments: [orders]
+    inventory: [orders]
+
