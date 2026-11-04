@@ -1,0 +1,7 @@
+scenario_id: phase4_demo_pool_saturation
+service: payments
+fault_type: db_pool_exhaustion
+source_postmortem: pm_eval_payments_pool_saturation_001
+notes: >-
+  Evaluation-only scenario marker. Its source post-mortem identifier is intentionally not
+  included in the searchable knowledge base.

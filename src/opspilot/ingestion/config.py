@@ -25,8 +25,15 @@ def load_ingestion_settings(path: Path) -> IngestionSettings:
     """Read HTTP collector settings, with the database URL overridable by environment."""
     try:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(raw, dict) and "OPSPILOT_DATABASE_URL" in os.environ:
-            raw["database_url"] = os.environ["OPSPILOT_DATABASE_URL"]
+        if isinstance(raw, dict):
+            if "OPSPILOT_DATABASE_URL" in os.environ:
+                raw["database_url"] = os.environ["OPSPILOT_DATABASE_URL"]
+            services = raw.get("services", {})
+            if isinstance(services, dict):
+                for service in services:
+                    env_name = f"OPSPILOT_{str(service).upper()}_URL"
+                    if env_name in os.environ:
+                        services[service] = os.environ[env_name]
         return IngestionSettings.model_validate(raw)
     except FileNotFoundError as exc:
         raise ConfigurationError(f"Ingestion config not found: {path}") from exc

@@ -19,11 +19,15 @@ data/raw/*
 data/interim/*
 data/processed/*
 data/models/*
+data/rag/*
+data/agents/*
 data/ground_truth/*
 !data/raw/.gitkeep
 !data/interim/.gitkeep
 !data/processed/.gitkeep
 !data/models/.gitkeep
+!data/rag/.gitkeep
+!data/agents/.gitkeep
 !data/ground_truth/.gitkeep
 evals/reports/*
 !evals/reports/.gitkeep

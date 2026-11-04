@@ -1,0 +1,10 @@
+embedding_model: sentence-transformers/all-MiniLM-L6-v2
+device: cpu
+embedding_batch_size: 32
+index_dir: data/rag
+collection_name: opspilot_knowledge
+chunk_size_tokens: 650
+chunk_overlap_tokens: 80
+candidate_k: 20
+rrf_k: 60
+default_k: 5

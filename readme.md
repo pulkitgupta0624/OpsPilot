@@ -2148,6 +2148,8 @@ State clearly: simulated environment, synthetic knowledge base, human approval r
 
 ### Week 5: Agent workflow
 
+Implementation notes and PowerShell demo steps: [docs/phase5.md](docs/phase5.md).
+
 - [ ] Ports + fake LLM; `IncidentState`, schemas, routing functions + tests
 - [ ] Tools (metrics, logs, deployments, topology, runbooks) with budgets
 - [ ] Nodes: intake → triage → investigator → critic → planner → policy_gate
@@ -2160,6 +2162,10 @@ State clearly: simulated environment, synthetic knowledge base, human approval r
 
 ### Week 6: Product, DevOps, evaluation, polish
 
+Implementation notes and PowerShell startup steps for the first API/dashboard slice:
+[docs/phase6.md](docs/phase6.md), including the Docker Compose demo. The remaining Week 6
+release checklist is still open.
+
 - [ ] FastAPI routers, auth, error envelope, SSE (if time)
 - [ ] Streamlit pages (live metrics, incidents, trace, approval, chaos, evaluation)
 - [ ] Dockerfile + compose; `make demo` works from a clean clone
@@ -2171,6 +2177,27 @@ State clearly: simulated environment, synthetic knowledge base, human approval r
 - **DoD:** the **Release checklist** in Appendix E is fully ticked. Tag `v1.0`.
 
 > **If you fall behind:** cut in this order: Grafana overlay → SSE → cross-encoder rerank → Postgres checkpointer → ensemble → Kubernetes. Never cut: tests, evaluation, safety policy, README.
+
+### Real checkout application extension
+
+This extension adds a working application for OpsPilot to monitor after the core
+simulator project. Its phase order is:
+
+1. **Checkout workload:** independent orders, payments, and inventory services with a
+   browser checkout, service-owned state, request IDs, and a controlled local failure.
+2. **Telemetry:** instrument the workload and collect metrics, logs, and traces with
+   OpenTelemetry; add Prometheus alerting.
+3. **OpsPilot adapters:** receive Alertmanager webhooks and let OpsPilot read evidence
+   from the checkout workload.
+4. **Read-only investigation:** adapt runbooks and agent tools to explain incidents
+   using the workload's telemetry.
+5. **Approved recovery:** run the workload in an isolated local Kubernetes cluster
+   and allow a small, namespace-scoped action set with approval and verification.
+6. **Evaluation and showcase:** repeat controlled scenarios, report measured results,
+   and record the full incident-response demo.
+
+Phase 1 is implemented in [examples/checkout_demo](examples/checkout_demo/README.md).
+It runs independently and is not yet connected to OpsPilot ingestion or remediation.
 
 ### Weekly rhythm (suggested)
 

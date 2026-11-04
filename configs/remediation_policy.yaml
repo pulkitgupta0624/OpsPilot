@@ -1,0 +1,14 @@
+defaults:
+  auto_execute_max_risk: low
+  require_approval_for_services:
+    - payments
+  max_actions_per_incident: 2
+  cooldown_seconds_per_service_action: 300
+actions:
+  restart_service: medium
+  rollback_deployment: medium
+  scale_out: low
+  clear_disk: low
+  clear_disk_space: low
+  increase_db_pool: medium
+  enable_circuit_breaker: low

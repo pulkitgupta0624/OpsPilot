@@ -1,0 +1,84 @@
+name: opspilot-checkout
+
+services:
+  inventory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: inventory
+    environment:
+      DATABASE_PATH: /data/inventory.sqlite3
+    volumes:
+      - inventory_data:/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - checkout
+
+  payments:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: payments
+    environment:
+      DATABASE_PATH: /data/payments.sqlite3
+    volumes:
+      - payments_data:/data
+    ports:
+      - "127.0.0.1:8082:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - checkout
+
+  orders:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: orders
+    environment:
+      DATABASE_PATH: /data/orders.sqlite3
+      INVENTORY_BASE_URL: http://inventory:8000
+      PAYMENTS_BASE_URL: http://payments:8000
+    volumes:
+      - orders_data:/data
+    ports:
+      - "127.0.0.1:8080:8000"
+    depends_on:
+      inventory:
+        condition: service_healthy
+      payments:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - checkout
+
+networks:
+  checkout:
+    name: opspilot-checkout
+
+volumes:
+  inventory_data:
+  payments_data:
+  orders_data:

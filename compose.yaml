@@ -1,0 +1,195 @@
+name: opspilot-demo
+
+x-app-build: &app-build
+  context: .
+  dockerfile: docker/Dockerfile
+  target: app
+
+x-simulator-build: &simulator-build
+  context: .
+  dockerfile: docker/Dockerfile
+  target: simulator
+
+x-dashboard-build: &dashboard-build
+  context: .
+  dockerfile: docker/Dockerfile
+  target: dashboard
+
+x-common-environment: &common-environment
+  LANGGRAPH_STRICT_MSGPACK: "true"
+  OPSPILOT_DATABASE_URL: "postgresql+psycopg://opspilot:${OPSPILOT_DB_PASSWORD:-local-demo-only}@postgres:5432/opspilot"
+  OPSPILOT_ORDERS_URL: http://orders:8001
+  OPSPILOT_PAYMENTS_URL: http://payments:8002
+  OPSPILOT_INVENTORY_URL: http://inventory:8003
+  HF_HOME: /home/app/.cache/huggingface
+
+x-app-volumes: &app-volumes
+  - opspilot-demo-data:/app/data
+  - opspilot-demo-generated:/app/knowledge_base/generated
+  - opspilot-demo-reports:/app/evals/reports
+  - opspilot-demo-model-cache:/home/app/.cache/huggingface
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: opspilot
+      POSTGRES_PASSWORD: ${OPSPILOT_DB_PASSWORD:-local-demo-only}
+      POSTGRES_DB: opspilot
+    volumes:
+      - opspilot-demo-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opspilot -d opspilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  orders:
+    build: *simulator-build
+    command:
+      - uvicorn
+      - opspilot.simulator.services.orders.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  payments:
+    build: *simulator-build
+    command:
+      - uvicorn
+      - opspilot.simulator.services.payments.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8002"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  inventory:
+    build: *simulator-build
+    command:
+      - uvicorn
+      - opspilot.simulator.services.inventory.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8003"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8003/health', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  bootstrap:
+    build: *app-build
+    command: ["sh", "/app/docker/demo-bootstrap.sh"]
+    environment: *common-environment
+    volumes: *app-volumes
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: *app-build
+    command: ["opspilot", "monitor", "--detector", "rolling_zscore"]
+    environment: *common-environment
+    volumes: *app-volumes
+    restart: unless-stopped
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      orders:
+        condition: service_healthy
+      payments:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+
+  api:
+    build: *app-build
+    environment:
+      <<: *common-environment
+      OPSPILOT_API_KEY: "${OPSPILOT_API_KEY:?Copy .env.example to .env and set OPSPILOT_API_KEY}"
+      OPSPILOT_ENABLE_CHAOS_API: ${OPSPILOT_ENABLE_CHAOS_API:-false}
+      OPSPILOT_RAG_INDEX_DIR: /app/data/rag
+      OPSPILOT_EVAL_REPORT_DIR: /app/evals/reports
+    volumes: *app-volumes
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  dashboard:
+    build: *dashboard-build
+    command:
+      - streamlit
+      - run
+      - src/opspilot/dashboard/app.py
+      - --server.address
+      - 0.0.0.0
+      - --server.port
+      - "8501"
+    environment:
+      OPSPILOT_API_URL: http://api:8000
+      OPSPILOT_API_KEY: ${OPSPILOT_API_KEY:?Copy .env.example to .env and set OPSPILOT_API_KEY}
+    ports:
+      - "127.0.0.1:8501:8501"
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  opspilot-demo-data:
+  opspilot-demo-generated:
+  opspilot-demo-reports:
+  opspilot-demo-model-cache:
+  opspilot-demo-postgres:

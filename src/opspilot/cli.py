@@ -2,11 +2,12 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 from sqlalchemy.exc import SQLAlchemyError
 
+from opspilot.agents.cli import agent_app
 from opspilot.core.errors import OpsPilotError
 from opspilot.detection.config import load_detection_settings
 from opspilot.detection.logs.drain3_detector import Drain3LogDetector, load_normal_log_records
@@ -17,6 +18,7 @@ from opspilot.detection.training.train_ml import train_classical_detectors
 from opspilot.domain.models.telemetry import TimeRange
 from opspilot.evaluation.detection_eval import evaluate_classical_detectors
 from opspilot.evaluation.datasets import load_simulation_dataset
+from opspilot.evaluation.rag_eval import evaluate_retrieval, load_golden_questions
 from opspilot.ingestion.collectors.log_collector import LogCollector
 from opspilot.ingestion.collectors.metrics_scraper import MetricsScraper
 from opspilot.ingestion.config import load_ingestion_settings
@@ -28,6 +30,11 @@ from opspilot.ingestion.stores.postgres_incidents import PostgresIncidentStore
 from opspilot.ingestion.stores.postgres_ground_truth import PostgresGroundTruthStore
 from opspilot.ingestion.stores.postgres_logs import PostgresLogStore
 from opspilot.ingestion.stores.postgres_metrics import PostgresMetricsStore
+from opspilot.knowledge.config import load_rag_settings
+from opspilot.knowledge.ingest.indexer import KnowledgeIndexer
+from opspilot.knowledge.ingest.loaders import load_documents
+from opspilot.knowledge.leakage import check_scenario_leakage
+from opspilot.knowledge.service import build_retriever
 from opspilot.simulator.virtual_runner import run_virtual_simulation
 
 app = typer.Typer(
@@ -37,6 +44,11 @@ app = typer.Typer(
 )
 eval_app = typer.Typer(no_args_is_help=True)
 data_app = typer.Typer(no_args_is_help=True)
+kb_app = typer.Typer(
+    name="kb",
+    help="Build and search the runbook and post-mortem knowledge base.",
+    no_args_is_help=True,
+)
 
 
 @app.callback()
@@ -333,6 +345,185 @@ def eval_detection(
     typer.echo(f"Scores: {report.scores_path}")
 
 
+@kb_app.command("ingest")
+def kb_ingest(
+    source_dir: Annotated[
+        Path,
+        typer.Option(exists=True, file_okay=False, help="Markdown knowledge-base directory."),
+    ] = Path("knowledge_base"),
+    index_dir: Annotated[
+        Path | None,
+        typer.Option(file_okay=False, help="Persistent Qdrant and BM25 index directory."),
+    ] = None,
+    config: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="RAG settings YAML."),
+    ] = Path("configs/rag.yaml"),
+) -> None:
+    """Rebuild dense Qdrant and sparse BM25 indexes from Markdown documents."""
+    try:
+        summary = KnowledgeIndexer(load_rag_settings(config), index_dir=index_dir).ingest(
+            source_dir
+        )
+    except (OpsPilotError, OSError, ValueError) as exc:
+        typer.echo(f"Knowledge-base ingestion failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    type_counts = ", ".join(
+        f"{count} {document_type.replace('_', ' ')}"
+        for document_type, count in summary.document_counts.items()
+    )
+    typer.echo(
+        f"Indexed {summary.document_count} documents ({type_counts}) into "
+        f"{summary.chunk_count} chunks. Index: {summary.index_dir}"
+    )
+
+
+@kb_app.command("search")
+def kb_search(
+    query: str,
+    k: Annotated[
+        int | None,
+        typer.Option(min=1, max=50, help="Number of cited passages."),
+    ] = None,
+    service: Annotated[str | None, typer.Option(help="Filter by service.")] = None,
+    fault_type: Annotated[str | None, typer.Option(help="Filter by fault type.")] = None,
+    doc_type: Annotated[str | None, typer.Option(help="Filter by document type.")] = None,
+    include_unverified: Annotated[
+        bool,
+        typer.Option(help="Include documents marked unverified."),
+    ] = False,
+    mode: Annotated[
+        Literal["hybrid", "dense", "bm25"],
+        typer.Option(help="Choose hybrid RRF, dense, or BM25 retrieval."),
+    ] = "hybrid",
+    index_dir: Annotated[
+        Path | None,
+        typer.Option(file_okay=False, help="Persistent Qdrant and BM25 index directory."),
+    ] = None,
+    config: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="RAG settings YAML."),
+    ] = Path("configs/rag.yaml"),
+) -> None:
+    """Search for relevant passages and print source citations."""
+    retriever = None
+    try:
+        settings = load_rag_settings(config)
+        retriever = build_retriever(settings, index_dir=index_dir)
+        filters = {
+            key: value
+            for key, value in {
+                "service": service,
+                "fault_type": fault_type,
+                "doc_type": doc_type,
+            }.items()
+            if value is not None
+        }
+        filters["status"] = None if include_unverified else "verified"
+        results = retriever.search(
+            query,
+            k=k or settings.default_k,
+            filters=filters,
+            mode=mode,
+        )
+    except (OpsPilotError, OSError, ValueError) as exc:
+        typer.echo(f"Knowledge-base search failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        if retriever is not None:
+            retriever.close()
+
+    if not results:
+        typer.echo("No matching knowledge passages found.")
+        raise typer.Exit(code=0)
+    for rank, result in enumerate(results, start=1):
+        metadata = result.metadata
+        service_name = metadata.get("service", "unknown")
+        doc_type_name = metadata.get("doc_type", "unknown")
+        typer.echo(
+            f"{rank}. {result.doc_id} · {result.section} · {service_name} · "
+            f"{doc_type_name} · score={result.score:.4f}"
+        )
+        typer.echo(f"   Citation: [{result.citation.doc_id} | {result.citation.section}]")
+        typer.echo(f"   {result.text[:700]}")
+
+
+@kb_app.command("eval")
+def kb_eval(
+    golden: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="Golden retrieval questions in JSONL."),
+    ] = Path("evals/datasets/rag_golden.jsonl"),
+    source_dir: Annotated[
+        Path,
+        typer.Option(exists=True, file_okay=False, help="Markdown knowledge-base directory."),
+    ] = Path("knowledge_base"),
+    index_dir: Annotated[
+        Path | None,
+        typer.Option(file_okay=False, help="Persistent Qdrant and BM25 index directory."),
+    ] = None,
+    report_dir: Annotated[
+        Path,
+        typer.Option(file_okay=False, help="Destination for timestamped retrieval reports."),
+    ] = Path("evals/reports"),
+    config: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="RAG settings YAML."),
+    ] = Path("configs/rag.yaml"),
+) -> None:
+    """Measure retrieval quality and write the four-way ablation table."""
+    retriever = None
+    try:
+        settings = load_rag_settings(config)
+        questions = load_golden_questions(golden)
+        documents = load_documents(source_dir)
+        retriever = build_retriever(settings, index_dir=index_dir)
+        summary = evaluate_retrieval(
+            retriever,
+            questions,
+            corpus_doc_ids={document.doc_id for document in documents},
+            report_dir=report_dir,
+        )
+    except (OpsPilotError, OSError, ValueError) as exc:
+        typer.echo(f"RAG evaluation failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        if retriever is not None:
+            retriever.close()
+    typer.echo(f"Questions: {summary.question_count}")
+    typer.echo(f"CSV report: {summary.csv_path}")
+    typer.echo(f"Markdown report: {summary.markdown_path}")
+
+
+@kb_app.command("check-leakage")
+def kb_check_leakage(
+    source_dir: Annotated[
+        Path,
+        typer.Option(exists=True, file_okay=False, help="Markdown knowledge-base directory."),
+    ] = Path("knowledge_base"),
+    scenarios_dir: Annotated[
+        Path,
+        typer.Option(exists=True, file_okay=False, help="Evaluation scenario directory."),
+    ] = Path("evals/scenarios"),
+) -> None:
+    """Fail if a scenario's source post-mortem is present in the searchable KB."""
+    try:
+        report = check_scenario_leakage(source_dir, scenarios_dir)
+    except (OpsPilotError, OSError, ValueError) as exc:
+        typer.echo(f"Knowledge leakage check failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if report.leaked_references:
+        typer.echo(
+            "Leaked source post-mortem(s): " + ", ".join(report.leaked_references),
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    typer.echo(
+        f"No leakage found across {report.scenario_count} scenario file(s) and "
+        f"{report.reference_count} source-postmortem reference(s)."
+    )
+
+
 @data_app.callback()
 def data_group() -> None:
     """Import and export telemetry datasets."""
@@ -432,6 +623,8 @@ def _parse_timezone_datetime(value: str) -> datetime:
 
 app.add_typer(eval_app, name="eval")
 app.add_typer(data_app, name="data")
+app.add_typer(kb_app, name="kb")
+app.add_typer(agent_app, name="agent")
 
 
 if __name__ == "__main__":

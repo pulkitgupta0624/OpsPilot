@@ -12,3 +12,7 @@ class ConfigurationError(OpsPilotError):
 class SimulationError(OpsPilotError):
     """Raised when a simulation cannot be completed safely."""
 
+
+class KnowledgeBaseError(OpsPilotError):
+    """Raised when knowledge documents, indexes, or retrieval inputs are invalid."""
+
